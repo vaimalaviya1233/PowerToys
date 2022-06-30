@@ -273,6 +273,19 @@ void ReportInstallerLogs(const filesystem::path& tmpDir, const filesystem::path&
     }
 }
 
+void ReportInstalledContextMenuPackages(const filesystem::path& tmpDir)
+{
+    const char* ImageResizerContextMenuPackage = "*ImageResizerContextMenu*";
+    const char* PowerRenameContextMenuPackage = "*PowerRenameContextMenu*";
+
+    auto reportPath = tmpDir;
+    reportPath.append("context-menu-packages.txt");
+
+    std::string powerShellCommand = "start powershell.exe get-appxcommand -name ";
+    system((powerShellCommand + ImageResizerContextMenuPackage + " >> " + reportPath.string()).c_str());
+    system((powerShellCommand + PowerRenameContextMenuPackage + " >> " + reportPath.string()).c_str());
+}
+
 int wmain(int argc, wchar_t* argv[], wchar_t*)
 {
     // Get path to save zip
@@ -350,6 +363,8 @@ int wmain(int argc, wchar_t* argv[], wchar_t*)
     ReportVCMLogs(tempDir, reportDir);
     
     ReportInstallerLogs(tempDir, reportDir);
+
+    ReportInstalledContextMenuPackages(tempDir);
 
     // Zip folder
     auto zipPath = path::path(saveZipPath);
