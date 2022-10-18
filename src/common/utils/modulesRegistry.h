@@ -28,15 +28,18 @@ inline registry::ChangeSet getSvgPreviewHandlerChangeSet(const std::wstring inst
     using namespace registry::shellex;
     return generatePreviewHandler(PreviewHandlerType::preview,
                                   perUser,
-                                  L"{ddee2b8a-6807-48a6-bb20-2338174ff779}",
+                                  L"{214A7415-3C1C-4092-AA4C-B41B10BB1CE0}",
                                   get_std_product_version(),
                                   (fs::path{ installationDir } /
-                                   LR"d(modules\FileExplorerPreview\PowerToys.SvgPreviewHandler.comhost.dll)d")
+                                   LR"d(modules\FileExplorerPreview\SvgPreviewHandlerCpp.dll)d")
                                       .wstring(),
                                   registry::DOTNET_COMPONENT_CATEGORY_CLSID,
-                                  L"Microsoft.PowerToys.PreviewHandler.Svg.SvgPreviewHandler",
+                                  L"SvgPreviewHandler",
                                   L"Svg Preview Handler",
-                                  NonLocalizable::ExtSVG);
+                                  NonLocalizable::ExtSVG,
+                                  {},
+                                  L"{5DB39447-5D52-4024-B0E5-955396995CED}");
+    return {};
 }
 
 inline registry::ChangeSet getMdPreviewHandlerChangeSet(const std::wstring installationDir, const bool perUser)
