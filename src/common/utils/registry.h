@@ -315,7 +315,6 @@ namespace registry
                                                           std::wstring handlerClsid,
                                                           std::wstring powertoysVersion,
                                                           std::wstring fullPathToHandler,
-                                                          std::wstring handlerCategory,
                                                           std::wstring className,
                                                           std::wstring displayName,
                                                           std::vector<std::wstring> fileTypes,
@@ -331,9 +330,6 @@ namespace registry
             std::wstring inprocServerPath = clsidPath;
             inprocServerPath += L'\\';
             inprocServerPath += L"InprocServer32";
-
-            std::wstring implementedCategoriesPath = clsidPath + LR"d(\Implemented Categories\)d";
-            implementedCategoriesPath += handlerCategory;
 
             std::wstring assemblyKeyValue;
             if (const auto lastDotPos = className.rfind(L'.'); lastDotPos != std::wstring::npos)

@@ -5,13 +5,15 @@
 HINSTANCE   g_hInst     = NULL;
 long        g_cDllRef   = 0;
 
-// {214A7415-3C1C-4092-AA4C-B41B10BB1CE0}
-const CLSID CLSID_SvgPreviewHandler = { 0x214a7415, 0x3c1c, 0x4092, { 0xaa, 0x4c, 0xb4, 0x1b, 0x10, 0xbb, 0x1c, 0xe0 } };
+// {C0075768-9543-4730-8384-3CD506D59AD8}
+static const GUID CLSID_DevFilesPreviewHandler = { 0xc0075768, 0x9543, 0x4730, { 0x83, 0x84, 0x3c, 0xd5, 0x6, 0xd5, 0x9a, 0xd8 } };
 
-#pragma unmanaged
-BOOL APIENTRY DllMain(HMODULE hModule, DWORD dwReason, LPVOID lpReserved)
+BOOL APIENTRY DllMain( HMODULE hModule,
+                       DWORD  ul_reason_for_call,
+                       LPVOID lpReserved
+                     )
 {
-    switch (dwReason)
+    switch (ul_reason_for_call)
     {
     case DLL_PROCESS_ATTACH:
         g_hInst = hModule;
@@ -43,7 +45,7 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** ppv)
 {
     HRESULT hr = CLASS_E_CLASSNOTAVAILABLE;
 
-    if (IsEqualCLSID(CLSID_SvgPreviewHandler, rclsid))
+    if (IsEqualCLSID(CLSID_DevFilesPreviewHandler, rclsid))
     {
         hr = E_OUTOFMEMORY;
 
