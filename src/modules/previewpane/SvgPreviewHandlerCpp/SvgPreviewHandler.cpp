@@ -12,6 +12,8 @@
 #include <WebView2.h>
 #include <wil/com.h>
 
+#include <common/utils/gpo.h>
+
 using namespace Microsoft::WRL;
 
 extern HINSTANCE g_hInst;
@@ -210,9 +212,45 @@ IFACEMETHODIMP SvgPreviewHandler::SetRect(const RECT *prc)
     return hr;
 }
 
+LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    switch (message)
+    {
+    case WM_SIZE:
+        //if (webviewController != nullptr)
+        //{
+        //    RECT bounds;
+        //    GetClientRect(hWnd, &bounds);
+        //    webviewController->put_Bounds(bounds);
+        //};
+        break;
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+    default:
+        return DefWindowProc(hWnd, message, wParam, lParam);
+        break;
+    }
+
+    return 0;
+}
+
+
 IFACEMETHODIMP SvgPreviewHandler::DoPreview()
 {
     HRESULT hr = E_FAIL;
+
+    if (powertoys_gpo::getConfiguredSvgPreviewEnabledValue() == powertoys_gpo::gpo_rule_configured_disabled)
+    {
+        // GPO is disabling this utility. Show an error message instead.
+        HWND textField = CreateWindow(L"STATIC", L"Tried to start with a GPO policy setting the utility to always be disabled. Please contact your systems administrator.",
+            WS_CHILD | WS_VISIBLE | SS_CENTER,
+            5, 5, RECTWIDTH(m_rcParent) - 10, 20, m_hwndParent, NULL, NULL, NULL);
+
+        return S_OK;
+    }
+
+
     CleanupWebView2UserDataFolder();
 
     std::string svgData;
@@ -275,6 +313,69 @@ IFACEMETHODIMP SvgPreviewHandler::DoPreview()
     //{
     //    PreviewError(ex, dataSource);
     //}
+
+    //WNDCLASSEX wcex;
+    //std::wstring asd = std::wstring{ std::wstring{ L"CLASSNAME" } + std::to_wstring(rand() % 100) };
+    //wcex.cbSize = sizeof(WNDCLASSEX);
+    //wcex.style = CS_HREDRAW | CS_VREDRAW;
+    //wcex.lpfnWndProc = WndProc;
+    //wcex.cbClsExtra = 0;
+    //wcex.cbWndExtra = 0;
+    //wcex.hInstance = g_hInst;
+    //wcex.hIcon = LoadIcon(g_hInst, IDI_APPLICATION);
+    //wcex.hCursor = LoadCursor(NULL, IDC_ARROW);
+    //wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    //wcex.lpszMenuName = NULL;
+    //wcex.lpszClassName = asd.c_str();
+    //wcex.hIconSm = LoadIcon(wcex.hInstance, IDI_APPLICATION);
+
+    //if (!RegisterClassEx(&wcex))
+    //{
+    //    MessageBox(NULL,
+    //               L"Call to RegisterClassEx failed!",
+    //               L"Windows Desktop Guided Tour",
+    //               NULL);
+
+    //    return 1;
+    //}
+    //HWND hWnd = CreateWindow(
+    //    asd.c_str(),
+    //    L"TITLE",
+    //    WS_CHILDWINDOW,
+    //    CW_USEDEFAULT,
+    //    CW_USEDEFAULT,
+    //    1200,
+    //    900,
+    //    m_hwndParent,
+    //    NULL,
+    //    g_hInst,
+    //    NULL);
+    //SetParent(hWnd, m_hwndParent);
+    //SetWindowPos(hWnd, NULL, m_rcParent.left, m_rcParent.top,
+    //            RECTWIDTH(m_rcParent), RECTHEIGHT(m_rcParent),
+    //            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+
+    //HWND textField = CreateWindow(L"STATIC", L"Tried to start with a GPO policy setting the utility to always be disabled. Please contact your systems administrator.", 
+    // WS_CHILD | WS_VISIBLE | SS_CENTER, 5,  5, RECTWIDTH(m_rcParent) - 10, 20, m_hwndParent, NULL, NULL, NULL);
+     CreateWindowEx(
+        0, L"EDIT", // predefined class
+        L"Tried to start with a GPO policy setting the utility to always be disabled. Please contact your systems administrator.", // no window title
+        WS_CHILD | WS_VISIBLE | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL,
+        5,
+        5,
+        RECTWIDTH(m_rcParent) - 10,
+        50, // set size in WM_SIZE message
+        m_hwndParent, // parent window
+        NULL, // edit control ID
+        g_hInst,
+        NULL);   
+    // The parameters to ShowWindow explained:
+    // hWnd: the value returned from CreateWindow
+    // nCmdShow: the fourth parameter from WinMain
+    //ShowWindow(hWnd,
+    //           SW_SHOW);
+    //UpdateWindow(hWnd);
+
 
     return S_OK;
 }
@@ -375,6 +476,7 @@ void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
                 // The demo step is redundant since the values are the default settings
                 ICoreWebView2Settings* Settings;
                 m_webviewWindow->get_Settings(&Settings);
+
                 //Settings->put_IsScriptEnabled(TRUE);
                 //Settings->put_AreDefaultScriptDialogsEnabled(TRUE);
                 //Settings->put_IsWebMessageEnabled(TRUE);
@@ -383,10 +485,9 @@ void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
                 RECT bounds;
                 GetClientRect(m_hwndParent, &bounds);
                 m_webviewController->put_Bounds(bounds);
-
-                // Schedule an async task to navigate to Bing
-                //webviewWindow->Navigate(L"https://www.bing.com");
-
+                HWND aaa;
+                m_webviewController->get_ParentWindow(&aaa);
+                
                 m_webviewWindow->NavigateToString(svgData.c_str());
 
                 return S_OK;
