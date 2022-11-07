@@ -19,6 +19,9 @@ using namespace Microsoft::WRL;
 extern HINSTANCE g_hInst;
 extern long g_cDllRef;
 
+static const uint32_t cInfoBarHeight = 70;
+static const wchar_t szWindowClass[] = L"SVGPreviewControl";
+
 namespace
 {
 inline int RECTWIDTH(const RECT& rc)
@@ -50,20 +53,27 @@ std::wstring get_power_toys_local_low_folder_location()
 }
 
 SvgPreviewHandler::SvgPreviewHandler() :
-    m_cRef(1), m_pStream(NULL), m_hwndParent(NULL), m_rcParent(), m_hwndPreview(NULL), m_punkSite(NULL)
+    m_cRef(1), m_pStream(NULL), m_hwndParent(NULL), m_rcParent(), m_punkSite(NULL), m_gpoText(NULL), m_infoBarAdded(false)
 {
     m_webVew2UserDataFolder = get_power_toys_local_low_folder_location() + L"\\SvgPreview-Temp";
-
+    m_instance = this; 
     InterlockedIncrement(&g_cDllRef);
 }
 
 SvgPreviewHandler::~SvgPreviewHandler()
 {
-    if (m_hwndParent)
+    m_instance = NULL; 
+    if (m_gpoText)
     {
-        DestroyWindow(m_hwndPreview);
-        m_hwndPreview = NULL;
+        DestroyWindow(m_gpoText);
+        m_gpoText = NULL;
     }
+    if (m_blockedText)
+    {
+        DestroyWindow(m_blockedText);
+        m_blockedText = NULL;
+    }
+    UnregisterClass(szWindowClass, g_hInst);
     if (m_punkSite)
     {
         m_punkSite->Release();
@@ -142,26 +152,13 @@ IFACEMETHODIMP SvgPreviewHandler::SetWindow(HWND hwnd, const RECT *prc)
         m_hwndParent = hwnd;
         m_rcParent = *prc;
 
-        if (m_hwndPreview)
-        {
-            SetParent(m_hwndPreview, m_hwndParent);
-            SetWindowPos(m_hwndPreview, NULL, m_rcParent.left, m_rcParent.top,
-                RECTWIDTH(m_rcParent), RECTHEIGHT(m_rcParent),
-                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-        }
     }
     return S_OK;
 }
 
 IFACEMETHODIMP SvgPreviewHandler::SetFocus()
 {
-    HRESULT hr = S_FALSE;
-    if (m_hwndPreview)
-    {
-        ::SetFocus(m_hwndPreview);
-        hr = S_OK;
-    }
-    return hr;
+    return S_OK;
 }
 
 IFACEMETHODIMP SvgPreviewHandler::QueryFocus(HWND *phwnd)
@@ -201,12 +198,26 @@ IFACEMETHODIMP SvgPreviewHandler::SetRect(const RECT *prc)
     if (prc != NULL)
     {
         m_rcParent = *prc;
-        if (m_hwndPreview)
+        if (m_blockedText)
         {
-            SetWindowPos(m_hwndPreview, NULL, m_rcParent.left, m_rcParent.top,
-                RECTWIDTH(m_rcParent), RECTHEIGHT(m_rcParent),
+            SetWindowPos(m_blockedText, NULL, m_rcParent.left, m_rcParent.top,
+                RECTWIDTH(m_rcParent), cInfoBarHeight,
                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
+        if (!m_infoBarAdded)
+        {
+            if (m_webviewController)
+                m_webviewController->put_Bounds(m_rcParent);
+        }
+        else
+        {
+            RECT webViewRect{ m_rcParent.left, m_rcParent.top, m_rcParent.right, m_rcParent.bottom };
+            webViewRect.top += cInfoBarHeight;
+
+            if (m_webviewController)
+                m_webviewController->put_Bounds(webViewRect);
+        }
+
         hr = S_OK;
     }
     return hr;
@@ -217,13 +228,27 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
     switch (message)
     {
     case WM_SIZE:
-        //if (webviewController != nullptr)
-        //{
-        //    RECT bounds;
-        //    GetClientRect(hWnd, &bounds);
-        //    webviewController->put_Bounds(bounds);
-        //};
+    {
+        auto* instance = SvgPreviewHandler::instance();
+        if (instance)
+        {
+            auto controller = instance->GetWebView2Controller();
+            if (controller)
+            {
+                RECT bounds;
+                GetClientRect(hWnd, &bounds);
+                controller->put_Bounds(bounds);
+            }
+            HWND blockedTextHwnd = instance->GetBlockedTextHwnd();
+            if (blockedTextHwnd)
+            {
+                RECT bounds;
+                GetClientRect(hWnd, &bounds);
+                SetWindowPos(blockedTextHwnd, NULL, bounds.left, bounds.top, RECTWIDTH(bounds), cInfoBarHeight, NULL);
+            }
+        }
         break;
+    }
     case WM_DESTROY:
         PostQuitMessage(0);
         break;
@@ -243,13 +268,21 @@ IFACEMETHODIMP SvgPreviewHandler::DoPreview()
     if (powertoys_gpo::getConfiguredSvgPreviewEnabledValue() == powertoys_gpo::gpo_rule_configured_disabled)
     {
         // GPO is disabling this utility. Show an error message instead.
-        HWND textField = CreateWindow(L"STATIC", L"Tried to start with a GPO policy setting the utility to always be disabled. Please contact your systems administrator.",
-            WS_CHILD | WS_VISIBLE | SS_CENTER,
-            5, 5, RECTWIDTH(m_rcParent) - 10, 20, m_hwndParent, NULL, NULL, NULL);
+        m_gpoText = CreateWindowEx(
+           0, L"EDIT", // predefined class
+           L"Tried to start with a GPO policy setting the utility to always be disabled. Please contact your systems administrator.",
+           WS_CHILD | WS_VISIBLE | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+           5,
+           5,
+           RECTWIDTH(m_rcParent) - 10,
+           cInfoBarHeight,
+           m_hwndParent,
+           NULL,
+           g_hInst,
+           NULL);   
 
         return S_OK;
     }
-
 
     CleanupWebView2UserDataFolder();
 
@@ -276,8 +309,9 @@ IFACEMETHODIMP SvgPreviewHandler::DoPreview()
     }
     catch (std::exception ex)
     {
+        MessageBox(NULL, L"SDAD", L"ASDASDAD", NULL);
         //PreviewError(ex, dataSource);
-        //return;
+        return S_FALSE;
     }
 
     try
@@ -290,109 +324,68 @@ IFACEMETHODIMP SvgPreviewHandler::DoPreview()
     }
     catch (std::exception ex)
     {
+        MessageBox(NULL, L"11", L"11", NULL);
+
         //PowerToysTelemetry.Log.WriteEvent(new SvgFilePreviewError{ Message = ex.Message });
     }
 
-    //try
-    //{
-    //    _infoBarAdded = false;
+    try
+    {
+        m_infoBarAdded = false;
 
-    //    // Add a info bar on top of the Preview if any blocked element is present.
-    //    if (blocked)
-    //    {
-    //        _infoBarAdded = true;
-    //        AddTextBoxControl(Properties.Resource.BlockedElementInfoText);
-    //    }
+        // Add a info bar on top of the Preview if any blocked element is present.
+        if (blocked)
+        {
+            m_infoBarAdded = true;
 
-    AddWebViewControl(wsvgData);
-    //    Resize += FormResized;
-    //    base.DoPreview(dataSource);
-    //    PowerToysTelemetry.Log.WriteEvent(new SvgFilePreviewed());
-    //}
-    //catch (Exception ex)
-    //{
-    //    PreviewError(ex, dataSource);
-    //}
+            m_blockedText = CreateWindowEx(
+                0, L"EDIT", // predefined class
+                L"Some elements have been blocked to help prevent the sender from identifying your computer. Open this item to view all elements.",
+                WS_CHILD | WS_VISIBLE | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+                0,
+                0,
+                RECTWIDTH(m_rcParent),
+                cInfoBarHeight,
+                m_hwndParent, // parent window
+                NULL, // edit control ID
+                g_hInst,
+                NULL);   
 
-    //WNDCLASSEX wcex;
-    //std::wstring asd = std::wstring{ std::wstring{ L"CLASSNAME" } + std::to_wstring(rand() % 100) };
-    //wcex.cbSize = sizeof(WNDCLASSEX);
-    //wcex.style = CS_HREDRAW | CS_VREDRAW;
-    //wcex.lpfnWndProc = WndProc;
-    //wcex.cbClsExtra = 0;
-    //wcex.cbWndExtra = 0;
-    //wcex.hInstance = g_hInst;
-    //wcex.hIcon = LoadIcon(g_hInst, IDI_APPLICATION);
-    //wcex.hCursor = LoadCursor(NULL, IDC_ARROW);
-    //wcex.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
-    //wcex.lpszMenuName = NULL;
-    //wcex.lpszClassName = asd.c_str();
-    //wcex.hIconSm = LoadIcon(wcex.hInstance, IDI_APPLICATION);
+            UpdateWindow(m_hwndParent);
+            UpdateWindow(m_blockedText);
+        }
+        AddWebViewControl(wsvgData);
 
-    //if (!RegisterClassEx(&wcex))
-    //{
-    //    MessageBox(NULL,
-    //               L"Call to RegisterClassEx failed!",
-    //               L"Windows Desktop Guided Tour",
-    //               NULL);
-
-    //    return 1;
-    //}
-    //HWND hWnd = CreateWindow(
-    //    asd.c_str(),
-    //    L"TITLE",
-    //    WS_CHILDWINDOW,
-    //    CW_USEDEFAULT,
-    //    CW_USEDEFAULT,
-    //    1200,
-    //    900,
-    //    m_hwndParent,
-    //    NULL,
-    //    g_hInst,
-    //    NULL);
-    //SetParent(hWnd, m_hwndParent);
-    //SetWindowPos(hWnd, NULL, m_rcParent.left, m_rcParent.top,
-    //            RECTWIDTH(m_rcParent), RECTHEIGHT(m_rcParent),
-    //            SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-
-    //HWND textField = CreateWindow(L"STATIC", L"Tried to start with a GPO policy setting the utility to always be disabled. Please contact your systems administrator.", 
-    // WS_CHILD | WS_VISIBLE | SS_CENTER, 5,  5, RECTWIDTH(m_rcParent) - 10, 20, m_hwndParent, NULL, NULL, NULL);
-     CreateWindowEx(
-        0, L"EDIT", // predefined class
-        L"Tried to start with a GPO policy setting the utility to always be disabled. Please contact your systems administrator.", // no window title
-        WS_CHILD | WS_VISIBLE | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL,
-        5,
-        5,
-        RECTWIDTH(m_rcParent) - 10,
-        50, // set size in WM_SIZE message
-        m_hwndParent, // parent window
-        NULL, // edit control ID
-        g_hInst,
-        NULL);   
-    // The parameters to ShowWindow explained:
-    // hWnd: the value returned from CreateWindow
-    // nCmdShow: the fourth parameter from WinMain
-    //ShowWindow(hWnd,
-    //           SW_SHOW);
-    //UpdateWindow(hWnd);
-
+        //PowerToysTelemetry.Log.WriteEvent(new SvgFilePreviewed());
+    }
+    catch (std::exception ex)
+    {
+        //PreviewError(ex, dataSource);
+    }
 
     return S_OK;
 }
 
 IFACEMETHODIMP SvgPreviewHandler::Unload()
 {
+    m_instance = NULL;
     if (m_pStream)
     {
         m_pStream->Release();
         m_pStream = NULL;
     }
 
-    if (m_hwndPreview)
+    if (m_gpoText)
     {
-        DestroyWindow(m_hwndPreview);
-        m_hwndPreview = NULL;
+        DestroyWindow(m_gpoText);
+        m_gpoText = NULL;
     }
+    if (m_blockedText)
+    {
+        DestroyWindow(m_blockedText);
+        m_blockedText = NULL;
+    }
+    UnregisterClass(szWindowClass, g_hInst);
     return S_OK;
 }
 
@@ -461,8 +454,11 @@ IFACEMETHODIMP SvgPreviewHandler::GetSite(REFIID riid, void **ppv)
 
 void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
 {
-
-    CreateCoreWebView2EnvironmentWithOptions(nullptr, L"C:\\Users\\stefa\\AppData\\LocalLow\\Microsoft\\PowerToys\\aaaa", nullptr,
+    if (m_webviewController)
+        m_webviewController->Close();
+    if (m_webviewWindow)
+        m_webviewWindow->Stop();
+    CreateCoreWebView2EnvironmentWithOptions(nullptr, m_webVew2UserDataFolder.c_str(), nullptr,
         Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>([this, svgData](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
             // Create a CoreWebView2Controller and get the associated CoreWebView2 whose parent is the main window hWnd
             env->CreateCoreWebView2Controller(m_hwndParent, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>([this, svgData](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
@@ -471,23 +467,43 @@ void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
                     m_webviewController = controller;
                     m_webviewController->get_CoreWebView2(&m_webviewWindow);
                 }
+                else
+                {
+                    MessageBox(NULL, L"22", L"22", NULL);
+
+                }
 
                 // Add a few settings for the webview
                 // The demo step is redundant since the values are the default settings
                 ICoreWebView2Settings* Settings;
                 m_webviewWindow->get_Settings(&Settings);
 
-                //Settings->put_IsScriptEnabled(TRUE);
-                //Settings->put_AreDefaultScriptDialogsEnabled(TRUE);
-                //Settings->put_IsWebMessageEnabled(TRUE);
+                Settings->put_AreDefaultScriptDialogsEnabled(FALSE);
+                Settings->put_AreDefaultContextMenusEnabled(FALSE);
+                Settings->put_IsScriptEnabled(FALSE);
+                Settings->put_IsWebMessageEnabled(FALSE);
+                Settings->put_AreDevToolsEnabled(FALSE);
+                Settings->put_AreHostObjectsAllowed(FALSE);
+                // TODO(stefan)
+                //_browser.CoreWebView2.Settings.IsGeneralAutofillEnabled = false;
+                //_browser.CoreWebView2.Settings.IsPasswordAutosaveEnabled = false;
 
-                // Resize WebView to fit the bounds of the parent window
+                // TODO(stefan)
+                //_browser.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
+                //_browser.CoreWebView2.WebResourceRequested += CoreWebView2_BlockExternalResources;
+
                 RECT bounds;
                 GetClientRect(m_hwndParent, &bounds);
-                m_webviewController->put_Bounds(bounds);
-                HWND aaa;
-                m_webviewController->get_ParentWindow(&aaa);
-                
+
+                if (!m_infoBarAdded)
+                {
+                    m_webviewController->put_Bounds(bounds);                
+                }
+                else
+                {
+                    bounds.top += cInfoBarHeight;
+                    m_webviewController->put_Bounds(bounds);
+                }
                 m_webviewWindow->NavigateToString(svgData.c_str());
 
                 return S_OK;

@@ -17,6 +17,10 @@ class SvgPreviewHandler :
     public IObjectWithSite
 {
 public:
+    static SvgPreviewHandler* instance()
+    {
+        return m_instance;
+    }
     // IUnknown
     IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv);
     IFACEMETHODIMP_(ULONG) AddRef();
@@ -48,11 +52,21 @@ public:
     IFACEMETHODIMP GetSite(REFIID riid, void** ppv);
 
     SvgPreviewHandler();
+    wil::com_ptr<ICoreWebView2Controller> GetWebView2Controller()
+    {
+        return m_webviewController;
+    }
+    HWND GetBlockedTextHwnd()
+    {
+        return m_blockedText;
+    }
 
 protected:
     ~SvgPreviewHandler();
 
 private:
+    inline static SvgPreviewHandler* m_instance;
+
     // Reference count of component.
     long m_cRef;
 
@@ -65,9 +79,6 @@ private:
     // Bounding rect of the parent window.
     RECT m_rcParent;
 
-    // The actual previewer window.
-    HWND m_hwndPreview;
-
     // Site pointer from host, used to get IPreviewHandlerFrame.
     IUnknown* m_punkSite;
 
@@ -76,6 +87,10 @@ private:
 
     // Pointer to WebView window
     wil::com_ptr<ICoreWebView2> m_webviewWindow;
+
+    HWND m_gpoText;
+    HWND m_blockedText;
+    bool m_infoBarAdded;
 
     std::filesystem::path m_webVew2UserDataFolder;
 
