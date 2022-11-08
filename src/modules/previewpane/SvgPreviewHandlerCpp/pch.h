@@ -12,5 +12,6 @@
 #include <windows.h>
 #include <winrt/Windows.Data.Xml.Dom.h>
 #include <winrt/Windows.Foundation.Collections.h>
+#include <ProjectTelemetry.h>
 
 #endif //PCH_H

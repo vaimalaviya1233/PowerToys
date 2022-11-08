@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "SvgPreviewHandler.h"
+#include "Generated Files/resource.h"
+#include "trace.h"
 
 #include <assert.h>
 #include <exception>
@@ -12,7 +14,9 @@
 #include <WebView2.h>
 #include <wil/com.h>
 
+#include <common/SettingsAPI/settings_helpers.h>
 #include <common/utils/gpo.h>
+#include <common/utils/resources.h>
 
 using namespace Microsoft::WRL;
 
@@ -20,7 +24,6 @@ extern HINSTANCE g_hInst;
 extern long g_cDllRef;
 
 static const uint32_t cInfoBarHeight = 70;
-static const wchar_t szWindowClass[] = L"SVGPreviewControl";
 
 namespace
 {
@@ -34,29 +37,14 @@ inline int RECTHEIGHT(const RECT& rc)
     return (rc.bottom - rc.top);
 }
 
-std::wstring get_power_toys_local_low_folder_location()
-{
-    PWSTR local_app_path;
-    winrt::check_hresult(SHGetKnownFolderPath(FOLDERID_LocalAppDataLow, 0, NULL, &local_app_path));
-    std::wstring result{ local_app_path };
-    CoTaskMemFree(local_app_path);
-
-    result += L"\\Microsoft\\PowerToys";
-    std::filesystem::path save_path(result);
-    if (!std::filesystem::exists(save_path))
-    {
-        std::filesystem::create_directories(save_path);
-    }
-    return result;
-}
-
 }
 
 SvgPreviewHandler::SvgPreviewHandler() :
     m_cRef(1), m_pStream(NULL), m_hwndParent(NULL), m_rcParent(), m_punkSite(NULL), m_gpoText(NULL), m_infoBarAdded(false)
 {
-    m_webVew2UserDataFolder = get_power_toys_local_low_folder_location() + L"\\SvgPreview-Temp";
+    m_webVew2UserDataFolder = PTSettingsHelper::get_local_low_folder_location() + L"\\SvgPreview-Temp";
     m_instance = this; 
+
     InterlockedIncrement(&g_cDllRef);
 }
 
@@ -73,7 +61,11 @@ SvgPreviewHandler::~SvgPreviewHandler()
         DestroyWindow(m_blockedText);
         m_blockedText = NULL;
     }
-    UnregisterClass(szWindowClass, g_hInst);
+    if (m_errorText)
+    {
+        DestroyWindow(m_errorText);
+        m_errorText = NULL;
+    }
     if (m_punkSite)
     {
         m_punkSite->Release();
@@ -137,6 +129,8 @@ IFACEMETHODIMP SvgPreviewHandler::Initialize(IStream *pStream, DWORD grfMode)
         m_pStream = pStream;
         m_pStream->AddRef();
         hr = S_OK;
+
+        Trace::SvgFileHandlerLoaded();
     }
     return hr;
 }
@@ -204,62 +198,31 @@ IFACEMETHODIMP SvgPreviewHandler::SetRect(const RECT *prc)
                 RECTWIDTH(m_rcParent), cInfoBarHeight,
                 SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
-        if (!m_infoBarAdded)
+        if (m_errorText)
         {
-            if (m_webviewController)
-                m_webviewController->put_Bounds(m_rcParent);
+            SetWindowPos(m_errorText, NULL, m_rcParent.left, m_rcParent.top,
+                RECTWIDTH(m_rcParent), cInfoBarHeight,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
-        else
+        if (m_webviewController)
         {
-            RECT webViewRect{ m_rcParent.left, m_rcParent.top, m_rcParent.right, m_rcParent.bottom };
-            webViewRect.top += cInfoBarHeight;
+            if (!m_infoBarAdded)
+            {
+                m_webviewController->put_Bounds(m_rcParent);
+            }
+            else
+            {
+                RECT webViewRect{ m_rcParent.left, m_rcParent.top, m_rcParent.right, m_rcParent.bottom };
+                webViewRect.top += cInfoBarHeight;
 
-            if (m_webviewController)
                 m_webviewController->put_Bounds(webViewRect);
+            }
         }
 
         hr = S_OK;
     }
     return hr;
 }
-
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
-{
-    switch (message)
-    {
-    case WM_SIZE:
-    {
-        auto* instance = SvgPreviewHandler::instance();
-        if (instance)
-        {
-            auto controller = instance->GetWebView2Controller();
-            if (controller)
-            {
-                RECT bounds;
-                GetClientRect(hWnd, &bounds);
-                controller->put_Bounds(bounds);
-            }
-            HWND blockedTextHwnd = instance->GetBlockedTextHwnd();
-            if (blockedTextHwnd)
-            {
-                RECT bounds;
-                GetClientRect(hWnd, &bounds);
-                SetWindowPos(blockedTextHwnd, NULL, bounds.left, bounds.top, RECTWIDTH(bounds), cInfoBarHeight, NULL);
-            }
-        }
-        break;
-    }
-    case WM_DESTROY:
-        PostQuitMessage(0);
-        break;
-    default:
-        return DefWindowProc(hWnd, message, wParam, lParam);
-        break;
-    }
-
-    return 0;
-}
-
 
 IFACEMETHODIMP SvgPreviewHandler::DoPreview()
 {
@@ -270,7 +233,7 @@ IFACEMETHODIMP SvgPreviewHandler::DoPreview()
         // GPO is disabling this utility. Show an error message instead.
         m_gpoText = CreateWindowEx(
            0, L"EDIT", // predefined class
-           L"Tried to start with a GPO policy setting the utility to always be disabled. Please contact your systems administrator.",
+           GET_RESOURCE_STRING(IDS_GPODISABLEDERRORTEXT).c_str(),
            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
            5,
            5,
@@ -309,8 +272,9 @@ IFACEMETHODIMP SvgPreviewHandler::DoPreview()
     }
     catch (std::exception ex)
     {
-        MessageBox(NULL, L"SDAD", L"ASDASDAD", NULL);
-        //PreviewError(ex, dataSource);
+        PreviewError(std::string("Error reading data:") + ex.what());
+
+        Trace::SvgFilePreviewError(ex.what());
         return S_FALSE;
     }
 
@@ -324,9 +288,9 @@ IFACEMETHODIMP SvgPreviewHandler::DoPreview()
     }
     catch (std::exception ex)
     {
-        MessageBox(NULL, L"11", L"11", NULL);
+        PreviewError(std::string("Error processing SVG data:") + ex.what());
 
-        //PowerToysTelemetry.Log.WriteEvent(new SvgFilePreviewError{ Message = ex.Message });
+        Trace::SvgFilePreviewError(ex.what());
     }
 
     try
@@ -340,7 +304,7 @@ IFACEMETHODIMP SvgPreviewHandler::DoPreview()
 
             m_blockedText = CreateWindowEx(
                 0, L"EDIT", // predefined class
-                L"Some elements have been blocked to help prevent the sender from identifying your computer. Open this item to view all elements.",
+                GET_RESOURCE_STRING(IDS_BLOCKEDELEMENTINFOTEXT).c_str(),
                 WS_CHILD | WS_VISIBLE | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
                 0,
                 0,
@@ -356,11 +320,13 @@ IFACEMETHODIMP SvgPreviewHandler::DoPreview()
         }
         AddWebViewControl(wsvgData);
 
-        //PowerToysTelemetry.Log.WriteEvent(new SvgFilePreviewed());
+        Trace::SvgFilePreviewed();
     }
     catch (std::exception ex)
     {
-        //PreviewError(ex, dataSource);
+        PreviewError(std::string("Error previewing SVG data:") + ex.what());
+
+        Trace::SvgFilePreviewError(ex.what());
     }
 
     return S_OK;
@@ -385,7 +351,6 @@ IFACEMETHODIMP SvgPreviewHandler::Unload()
         DestroyWindow(m_blockedText);
         m_blockedText = NULL;
     }
-    UnregisterClass(szWindowClass, g_hInst);
     return S_OK;
 }
 
@@ -469,8 +434,7 @@ void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
                 }
                 else
                 {
-                    MessageBox(NULL, L"22", L"22", NULL);
-
+                    PreviewError(std::string("Error initalizing WebView controller"));
                 }
 
                 // Add a few settings for the webview
@@ -504,6 +468,7 @@ void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
                     bounds.top += cInfoBarHeight;
                     m_webviewController->put_Bounds(bounds);
                 }
+                // TODO(stefan) Add 2MB check
                 m_webviewWindow->NavigateToString(svgData.c_str());
 
                 return S_OK;
@@ -524,23 +489,17 @@ BOOL SvgPreviewHandler::CheckBlockedElements(std::wstring svgData)
 
     // Check if any of the blocked element is present. If failed to parse or iterate over Svg return default false.
     // No need to throw because all the external content and script are blocked on the Web Browser Control itself.
-    try
-    {
-        winrt::Windows::Data::Xml::Dom::XmlDocument doc;
-        doc.LoadXml(svgData);
+    winrt::Windows::Data::Xml::Dom::XmlDocument doc;
+    doc.LoadXml(svgData);
 
-        for (const auto blockedElem : BlockedElementsName)
-        {
-            winrt::Windows::Data::Xml::Dom::XmlNodeList elems = doc.GetElementsByTagName(blockedElem);
-            if (elems.Size() > 0)
-            {
-                foundBlockedElement = true;
-                break;
-            }
-        }
-    }
-    catch (std::exception)
+    for (const auto blockedElem : BlockedElementsName)
     {
+        winrt::Windows::Data::Xml::Dom::XmlNodeList elems = doc.GetElementsByTagName(blockedElem);
+        if (elems.Size() > 0)
+        {
+            foundBlockedElement = true;
+            break;
+        }
     }
 
     return foundBlockedElement;
@@ -559,8 +518,11 @@ void SvgPreviewHandler::CleanupWebView2UserDataFolder()
             }
         }
     }
-    catch (std::exception)
+    catch (std::exception ex)
     {
+        PreviewError(std::string("Error cleaning up WebView2 user data folder:") + ex.what());
+
+        Trace::SvgFilePreviewError(ex.what());
     }
 }
 
@@ -691,6 +653,27 @@ std::wstring SvgPreviewHandler::RemoveUnit(std::wstring value)
     }
 
     return value;
+}
+
+void SvgPreviewHandler::PreviewError(std::string errorMessage)
+{
+    if (m_errorText)
+    {
+        DestroyWindow(m_errorText);
+    }
+
+    m_errorText = CreateWindowEx(
+        0, L"EDIT", // predefined class
+        winrt::to_hstring(errorMessage).c_str(),
+        WS_CHILD | WS_VISIBLE | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+        0,
+        0,
+        RECTWIDTH(m_rcParent),
+        cInfoBarHeight,
+        m_hwndParent, // parent window
+        NULL, // edit control ID
+        g_hInst,
+        NULL);
 }
 
 #pragma endregion

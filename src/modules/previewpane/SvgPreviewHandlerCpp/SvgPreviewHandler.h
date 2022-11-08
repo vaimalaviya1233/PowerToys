@@ -90,6 +90,7 @@ private:
 
     HWND m_gpoText;
     HWND m_blockedText;
+    HWND m_errorText;
     bool m_infoBarAdded;
 
     std::filesystem::path m_webVew2UserDataFolder;
@@ -101,4 +102,5 @@ private:
     std::wstring AddStyleSVG(std::wstring svgData);
     std::wstring CheckUnit(std::wstring unit);
     std::wstring RemoveUnit(std::wstring unit);
+    void PreviewError(std::string errorMessage);
 };
