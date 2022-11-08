@@ -5,6 +5,9 @@
 #include <ShlObj.h>
 #include <string>
 
+#include <WebView2.h>
+#include <wil/com.h>
+
 class DevFilesPreviewHandler :
     public IInitializeWithFile,
     public IPreviewHandler,
@@ -61,11 +64,16 @@ private:
     // Bounding rect of the parent window.
     RECT m_rcParent;
 
-    // The actual previewer window.
-    HWND m_hwndPreview;
-
     // Site pointer from host, used to get IPreviewHandlerFrame.
     IUnknown* m_punkSite;
+
+    // Pointer to WebViewController
+    wil::com_ptr<ICoreWebView2Controller> m_webviewController;
+
+    // Pointer to WebView window
+    wil::com_ptr<ICoreWebView2> m_webviewWindow;
+
+    HWND m_gpoText;
 
     std::wstring GetLanguage(std::wstring fileExtension);
 };

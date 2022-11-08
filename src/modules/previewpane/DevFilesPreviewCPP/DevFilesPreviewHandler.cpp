@@ -1,14 +1,21 @@
 #include "pch.h"
 #include "DevFilesPreviewHandler.h"
+#include "Generated Files/resource.h"
 
 #include <algorithm>
 #include <filesystem>
 #include <Shlwapi.h>
 
+#include <common/SettingsAPI/settings_helpers.h>
+#include <common/utils/gpo.h>
 #include <common/utils/json.h>
+#include <common/utils/process_path.h>
+#include <common/utils/resources.h>
 
 extern HINSTANCE    g_hInst;
 extern long         g_cDllRef;
+
+static const uint32_t cInfoBarHeight = 70;
 
 namespace
 {
@@ -22,54 +29,22 @@ inline int RECTHEIGHT(const RECT& rc)
     return (rc.bottom - rc.top);
 }
 
-std::wstring get_power_toys_local_low_folder_location()
-{
-    PWSTR local_app_path;
-    winrt::check_hresult(SHGetKnownFolderPath(FOLDERID_LocalAppDataLow, 0, NULL, &local_app_path));
-    std::wstring result{ local_app_path };
-    CoTaskMemFree(local_app_path);
-
-    result += L"\\Microsoft\\PowerToys";
-    std::filesystem::path save_path(result);
-    if (!std::filesystem::exists(save_path))
-    {
-        std::filesystem::create_directories(save_path);
-    }
-    return result;
-}
-
-inline std::wstring get_module_folderpath(HMODULE mod = nullptr, const bool removeFilename = true)
-{
-    wchar_t buffer[MAX_PATH + 1];
-    DWORD actual_length = GetModuleFileNameW(mod, buffer, MAX_PATH);
-    if (GetLastError() == ERROR_INSUFFICIENT_BUFFER)
-    {
-        const DWORD long_path_length = 0xFFFF; // should be always enough
-        std::wstring long_filename(long_path_length, L'\0');
-        actual_length = GetModuleFileNameW(mod, long_filename.data(), long_path_length);
-        PathRemoveFileSpecW(long_filename.data());
-        long_filename.resize(std::wcslen(long_filename.data()));
-        long_filename.shrink_to_fit();
-        return long_filename;
-    }
-
-    if (removeFilename)
-    {
-        PathRemoveFileSpecW(buffer);
-    }
-    return { buffer, (UINT)lstrlenW(buffer) };
-}
-
 }
 
 DevFilesPreviewHandler::DevFilesPreviewHandler() :
-    m_cRef(1), m_hwndParent(NULL), m_rcParent(), m_hwndPreview(NULL), m_punkSite(NULL)
+    m_cRef(1), m_hwndParent(NULL), m_rcParent(), m_punkSite(NULL), m_gpoText(NULL)
 {
     InterlockedIncrement(&g_cDllRef);
 }
 
 DevFilesPreviewHandler::~DevFilesPreviewHandler()
 {
+    if (m_gpoText)
+    {
+        DestroyWindow(m_gpoText);
+        m_gpoText = NULL;
+    }
+
     InterlockedDecrement(&g_cDllRef);
 }
 
@@ -123,27 +98,13 @@ IFACEMETHODIMP DevFilesPreviewHandler::SetWindow(HWND hwnd, const RECT *prc)
     {
         m_hwndParent = hwnd;
         m_rcParent = *prc;
-
-        if (m_hwndPreview)
-        {
-            SetParent(m_hwndPreview, m_hwndParent);
-            SetWindowPos(m_hwndPreview, NULL, m_rcParent.left, m_rcParent.top,
-                RECTWIDTH(m_rcParent), RECTHEIGHT(m_rcParent),
-                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-        }
     }
     return S_OK;
 }
 
 IFACEMETHODIMP DevFilesPreviewHandler::SetFocus()
 {
-    HRESULT hr = S_FALSE;
-    if (m_hwndPreview)
-    {
-        ::SetFocus(m_hwndPreview);
-        hr = S_OK;
-    }
-    return hr;
+    return S_OK;
 }
 
 IFACEMETHODIMP DevFilesPreviewHandler::QueryFocus(HWND *phwnd)
@@ -183,30 +144,45 @@ IFACEMETHODIMP DevFilesPreviewHandler::SetRect(const RECT *prc)
     if (prc != NULL)
     {
         m_rcParent = *prc;
-        if (m_hwndPreview)
-        {
-            SetWindowPos(m_hwndPreview, NULL, m_rcParent.left, m_rcParent.top,
-                RECTWIDTH(m_rcParent), RECTHEIGHT(m_rcParent),
-                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
-        }
         hr = S_OK;
     }
     return hr;
 }
 
 IFACEMETHODIMP DevFilesPreviewHandler::DoPreview() {
-    HRESULT hr = S_OK;
+    HRESULT hr = E_FAIL;
+
+    if (powertoys_gpo::getConfiguredMonacoPreviewEnabledValue() == powertoys_gpo::gpo_rule_configured_disabled)
+    {
+        // GPO is disabling this utility. Show an error message instead.
+        m_gpoText = CreateWindowEx(
+            0, L"EDIT", // predefined class
+            GET_RESOURCE_STRING(IDS_GPODISABLEDERRORTEXT).c_str(),
+            WS_CHILD | WS_VISIBLE | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+            5,
+            5,
+            RECTWIDTH(m_rcParent) - 10,
+            cInfoBarHeight,
+            m_hwndParent,
+            NULL,
+            g_hInst,
+            NULL);
+
+        return S_OK;
+    }
+
     auto asd = GetLanguage(std::filesystem::path{m_filePath}.extension());
+    MessageBox(NULL, asd.c_str(), L"AAAA", NULL);
 
     return hr;
 }
 
 IFACEMETHODIMP DevFilesPreviewHandler::Unload()
 {
-    if (m_hwndPreview)
+    if (m_gpoText)
     {
-        DestroyWindow(m_hwndPreview);
-        m_hwndPreview = NULL;
+        DestroyWindow(m_gpoText);
+        m_gpoText = NULL;
     }
     return S_OK;
 }

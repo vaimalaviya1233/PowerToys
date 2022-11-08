@@ -43,14 +43,12 @@ SvgPreviewHandler::SvgPreviewHandler() :
     m_cRef(1), m_pStream(NULL), m_hwndParent(NULL), m_rcParent(), m_punkSite(NULL), m_gpoText(NULL), m_infoBarAdded(false)
 {
     m_webVew2UserDataFolder = PTSettingsHelper::get_local_low_folder_location() + L"\\SvgPreview-Temp";
-    m_instance = this; 
 
     InterlockedIncrement(&g_cDllRef);
 }
 
 SvgPreviewHandler::~SvgPreviewHandler()
 {
-    m_instance = NULL; 
     if (m_gpoText)
     {
         DestroyWindow(m_gpoText);
@@ -334,7 +332,6 @@ IFACEMETHODIMP SvgPreviewHandler::DoPreview()
 
 IFACEMETHODIMP SvgPreviewHandler::Unload()
 {
-    m_instance = NULL;
     if (m_pStream)
     {
         m_pStream->Release();

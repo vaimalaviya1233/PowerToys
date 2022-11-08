@@ -65,8 +65,6 @@ protected:
     ~SvgPreviewHandler();
 
 private:
-    inline static SvgPreviewHandler* m_instance;
-
     // Reference count of component.
     long m_cRef;
 

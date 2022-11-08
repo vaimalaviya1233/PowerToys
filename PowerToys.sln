@@ -472,7 +472,7 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "GPOWrapperProjection", "src
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SvgPreviewHandlerCpp", "src\modules\previewpane\SvgPreviewHandlerCpp\SvgPreviewHandlerCpp.vcxproj", "{C2CD3BFA-4B7B-4C57-B7D8-2B956328ED18}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DevFilesPreviewCPP", "src\modules\previewpane\DevFilesPreviewCPP\DevFilesPreviewCPP.vcxproj", "{C9A3B7D2-5174-47A0-910B-E04520522BA5}"
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DevFilesPreviewHandlerCpp", "src\modules\previewpane\DevFilesPreviewCPP\DevFilesPreviewHandlerCpp.vcxproj", "{C9A3B7D2-5174-47A0-910B-E04520522BA5}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
