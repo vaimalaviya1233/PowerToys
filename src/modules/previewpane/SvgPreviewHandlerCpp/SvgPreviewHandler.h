@@ -17,10 +17,6 @@ class SvgPreviewHandler :
     public IObjectWithSite
 {
 public:
-    static SvgPreviewHandler* instance()
-    {
-        return m_instance;
-    }
     // IUnknown
     IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv);
     IFACEMETHODIMP_(ULONG) AddRef();

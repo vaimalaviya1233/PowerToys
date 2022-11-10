@@ -111,7 +111,7 @@ inline registry::ChangeSet getMonacoPreviewHandlerChangeSet(const std::wstring i
                                   perUser,
                                   L"{C0075768-9543-4730-8384-3CD506D59AD8}",
                                   get_std_product_version(),
-                                  (fs::path{ installationDir } / LR"d(modules\FileExplorerPreview\DevFilesPreviewCpp.dll)d").wstring(),
+                                  (fs::path{ installationDir } / LR"d(modules\FileExplorerPreview\DevFilesPreviewHandlerCpp.dll)d").wstring(),
                                   L"DevFilesPreviewHandler",
                                   L"Developer Files Preview Handler",
                                   extensions,

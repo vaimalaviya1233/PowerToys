@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <Shlwapi.h>
+#include <wrl.h>
 
 #include <common/SettingsAPI/settings_helpers.h>
 #include <common/utils/gpo.h>
@@ -12,10 +13,14 @@
 #include <common/utils/process_path.h>
 #include <common/utils/resources.h>
 
+using namespace Microsoft::WRL;
+
 extern HINSTANCE    g_hInst;
 extern long         g_cDllRef;
 
 static const uint32_t cInfoBarHeight = 70;
+static const size_t cMaxFileSize = 50000; // =~50KB
+static const std::wstring cVirtualHostName = L"PowerToysLocalDevFilesPreview";
 
 namespace
 {
@@ -29,11 +34,94 @@ inline int RECTHEIGHT(const RECT& rc)
     return (rc.bottom - rc.top);
 }
 
+std::wstring get_file_content(std::wifstream& inStream, size_t fileSize)
+{
+    if (inStream)
+    {
+        std::wstring contents;
+        contents.resize(fileSize);
+        inStream.seekg(0, std::ios::beg);
+        inStream.read(&contents[0], contents.size());
+        inStream.close();
+        return (contents);
+    }
+    throw(errno);
+}
+
+std::string get_file_contents(std::ifstream& inStream, size_t fileSize)
+{
+    if (inStream)
+    {
+        std::string contents;
+        contents.resize(fileSize);
+        inStream.seekg(0, std::ios::beg);
+        inStream.read(&contents[0], contents.size());
+        inStream.close();
+        return (contents);
+    }
+    throw(errno);
+}
+
+static const std::string base64_chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    "abcdefghijklmnopqrstuvwxyz"
+    "0123456789+/";
+
+static inline bool is_base64(BYTE c)
+{
+    return (isalnum(c) || (c == '+') || (c == '/'));
+}
+
+std::string base64_encode(BYTE const* buf, unsigned int bufLen)
+{
+    std::string ret;
+    int i = 0;
+    int j = 0;
+    BYTE char_array_3[3];
+    BYTE char_array_4[4];
+
+    while (bufLen--)
+    {
+        char_array_3[i++] = *(buf++);
+        if (i == 3)
+        {
+            char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+            char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+            char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+            char_array_4[3] = char_array_3[2] & 0x3f;
+
+            for (i = 0; (i < 4); i++)
+                ret += base64_chars[char_array_4[i]];
+            i = 0;
+        }
+    }
+
+    if (i)
+    {
+        for (j = i; j < 3; j++)
+            char_array_3[j] = '\0';
+
+        char_array_4[0] = (char_array_3[0] & 0xfc) >> 2;
+        char_array_4[1] = ((char_array_3[0] & 0x03) << 4) + ((char_array_3[1] & 0xf0) >> 4);
+        char_array_4[2] = ((char_array_3[1] & 0x0f) << 2) + ((char_array_3[2] & 0xc0) >> 6);
+        char_array_4[3] = char_array_3[2] & 0x3f;
+
+        for (j = 0; (j < i + 1); j++)
+            ret += base64_chars[char_array_4[j]];
+
+        while ((i++ < 3))
+            ret += '=';
+    }
+
+    return ret;
+}
 }
 
 DevFilesPreviewHandler::DevFilesPreviewHandler() :
     m_cRef(1), m_hwndParent(NULL), m_rcParent(), m_punkSite(NULL), m_gpoText(NULL)
 {
+    m_webVew2UserDataFolder = PTSettingsHelper::get_local_low_folder_location() + L"\\DevFilesPreview-Temp";
+
     InterlockedIncrement(&g_cDllRef);
 }
 
@@ -145,13 +233,26 @@ IFACEMETHODIMP DevFilesPreviewHandler::SetRect(const RECT *prc)
     {
         m_rcParent = *prc;
         hr = S_OK;
+
+        if (m_webviewController)
+        {
+            if (/* !m_infoBarAdded*/ true)
+            {
+                m_webviewController->put_Bounds(m_rcParent);
+            }
+            else
+            {
+                RECT webViewRect{ m_rcParent.left, m_rcParent.top, m_rcParent.right, m_rcParent.bottom };
+                webViewRect.top += cInfoBarHeight;
+
+                m_webviewController->put_Bounds(webViewRect);
+            }
+        }
     }
     return hr;
 }
 
 IFACEMETHODIMP DevFilesPreviewHandler::DoPreview() {
-    HRESULT hr = E_FAIL;
-
     if (powertoys_gpo::getConfiguredMonacoPreviewEnabledValue() == powertoys_gpo::gpo_rule_configured_disabled)
     {
         // GPO is disabling this utility. Show an error message instead.
@@ -171,10 +272,153 @@ IFACEMETHODIMP DevFilesPreviewHandler::DoPreview() {
         return S_OK;
     }
 
-    auto asd = GetLanguage(std::filesystem::path{m_filePath}.extension());
-    MessageBox(NULL, asd.c_str(), L"AAAA", NULL);
+    //auto asd = GetLanguage(std::filesystem::path{m_filePath}.extension());
+    //        // Sets background color
+    //SetBackground();
+    //// Starts loading screen
+    //InitializeLoadingScreen();
+    //// New webview2 element
+    //_webView = new WebView2();
+    //// Checks if dataSource is a string
+    //if (!(dataSource is string filePath))
+    //{
+    //    throw new ArgumentException($ "{nameof(dataSource)} for {nameof(MonacoPreviewHandler)} must be a string but was a '{typeof(T)}'");
+    //}
+    std::wifstream in(m_filePath.c_str(), std::ios::in | std::ios::binary);
+    in.seekg(0, std::ios::end);
 
-    return hr;
+    size_t fileSize = in.tellg();
+    if (fileSize < cMaxFileSize)
+    {
+        std::wstring fileContent = get_file_content(in, fileSize);
+
+        std::wstring vsCodeLangSet = GetLanguage(m_filePath);
+
+        std::wifstream hmtlIn((get_module_folderpath(g_hInst) + L"\\index.html").c_str(), std::ios::in | std::ios::binary);
+        hmtlIn.seekg(0, std::ios::end);
+        fileSize = hmtlIn.tellg();
+        std::wstring htmlFileContent = get_file_content(hmtlIn, fileSize);
+
+        const std::wstring ptLang = L"[[PT_LANG]]";
+        size_t pos = htmlFileContent.find(ptLang);
+        if (pos != std::wstring::npos)
+        {
+            htmlFileContent.replace(pos, ptLang.size(), vsCodeLangSet);
+        }
+
+        const std::wstring ptWrap = L"[[PT_WRAP]]";
+        pos = htmlFileContent.find(ptWrap);
+        if (pos != std::wstring::npos)
+        {
+            htmlFileContent = htmlFileContent.replace(pos, ptWrap.size(), /* settings.Wrap ? L"1" : */ L"0");
+        }
+
+        const std::wstring ptTheme = L"[[PT_THEME]]";
+        pos = htmlFileContent.find(ptTheme);
+        if (pos != std::wstring::npos)
+        {
+            htmlFileContent = htmlFileContent.replace(pos, ptTheme.size(), /* Settings.GetTheme() */ L"dark");
+        }
+
+        // Read content in char (not wide char), convert it to base64 and than back to wide char
+        std::ifstream in2(m_filePath.c_str(), std::ios::in | std::ios::binary);
+        in2.seekg(0, std::ios::end);
+        fileSize = in2.tellg();
+        std::string fileContent2 = get_file_contents(in2, fileSize);
+
+        std::string asd = base64_encode((BYTE*)fileContent2.c_str(), (unsigned int)fileContent2.size());
+        std::wstring backToW = std::wstring(winrt::to_hstring(asd));
+
+        const std::wstring ptCode = L"[[PT_CODE]]";
+        pos = htmlFileContent.find(ptCode);
+        if (pos != std::wstring::npos)
+        {
+            htmlFileContent = htmlFileContent.replace(pos, ptCode.size(), backToW);
+        }
+
+        const std::wstring ptUrl = L"[[PT_URL]]";
+        pos = htmlFileContent.find(ptUrl);
+        while (pos != std::wstring::npos)
+        {
+            htmlFileContent = htmlFileContent.replace(pos, ptUrl.size(), cVirtualHostName);
+            pos = htmlFileContent.find(ptUrl, pos + ptUrl.size());
+        }
+
+        if (m_webviewController)
+            m_webviewController->Close();
+        if (m_webviewWindow)
+            m_webviewWindow->Stop();
+        CreateCoreWebView2EnvironmentWithOptions(nullptr, m_webVew2UserDataFolder.c_str(), nullptr,
+            Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>([this, htmlFileContent](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
+                // Create a CoreWebView2Controller and get the associated CoreWebView2 whose parent is the main window hWnd
+                env->CreateCoreWebView2Controller(m_hwndParent, Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>([this, htmlFileContent](HRESULT result, ICoreWebView2Controller* controller) -> HRESULT {
+                    if (controller != nullptr)
+                    {
+                        m_webviewController = controller;
+                        m_webviewController->get_CoreWebView2(&m_webviewWindow);
+                        wil::com_ptr<ICoreWebView2_3> webView;
+                        webView = m_webviewWindow.try_query<ICoreWebView2_3>();
+                        if (webView)
+                        {
+                            std::wstring modulePath = get_module_folderpath(g_hInst);
+                            webView->SetVirtualHostNameToFolderMapping(cVirtualHostName.c_str(), modulePath.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+                        }
+                        else
+                        {
+                            // error cant set virtual host
+                        }
+                    }
+                    else
+                    {
+                        //PreviewError(std::string("Error initalizing WebView controller"));
+                    }
+
+                    // Add a few settings for the webview
+                    // The demo step is redundant since the values are the default settings
+                    ICoreWebView2Settings* Settings;
+                    m_webviewWindow->get_Settings(&Settings);
+
+                    Settings->put_AreDefaultScriptDialogsEnabled(FALSE);
+                    Settings->put_AreDefaultContextMenusEnabled(FALSE);
+                    Settings->put_IsScriptEnabled(TRUE);
+                    Settings->put_IsWebMessageEnabled(FALSE);
+                    Settings->put_AreDevToolsEnabled(FALSE);
+                    Settings->put_AreHostObjectsAllowed(FALSE);
+                    // TODO(stefan)
+                    //_browser.CoreWebView2.Settings.IsGeneralAutofillEnabled = false;
+                    //_browser.CoreWebView2.Settings.IsPasswordAutosaveEnabled = false;
+
+                    // TODO(stefan)
+                    //_browser.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
+                    //_browser.CoreWebView2.WebResourceRequested += CoreWebView2_BlockExternalResources;
+
+                    RECT bounds;
+                    GetClientRect(m_hwndParent, &bounds);
+
+                    if (true /*!m_infoBarAdded*/)
+                    {
+                        m_webviewController->put_Bounds(bounds);                
+                    }
+                    else
+                    {
+                        bounds.top += cInfoBarHeight;
+                        m_webviewController->put_Bounds(bounds);
+                    }
+                    // TODO(stefan) Add 2MB check
+                    m_webviewWindow->NavigateToString(htmlFileContent.c_str());
+                    //m_webviewWindow->Navigate(L"http://www.bing.com");
+
+                    return S_OK;
+                }).Get());
+            return S_OK;
+        }).Get());
+    }
+    else
+    {
+        // Error file too big
+    }
+
+    return S_OK;
 }
 
 IFACEMETHODIMP DevFilesPreviewHandler::Unload()

@@ -254,11 +254,11 @@ IFACEMETHODIMP SvgPreviewHandler::DoPreview()
     try
     {
         char buffer[4096];
-        ULONG asd;
+        ULONG cbRead;
         while (true)
         {
-            auto result = m_pStream->Read(buffer, 4096, &asd);
-            svgData.append(buffer, asd);
+            auto result = m_pStream->Read(buffer, 4096, &cbRead);
+            svgData.append(buffer, cbRead);
             if (result == S_FALSE)
             {
                 break;

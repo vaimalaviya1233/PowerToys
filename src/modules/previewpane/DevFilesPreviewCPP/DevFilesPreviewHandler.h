@@ -2,6 +2,7 @@
 
 #include "pch.h"
 
+#include <filesystem>
 #include <ShlObj.h>
 #include <string>
 
@@ -66,6 +67,8 @@ private:
 
     // Site pointer from host, used to get IPreviewHandlerFrame.
     IUnknown* m_punkSite;
+
+    std::filesystem::path m_webVew2UserDataFolder;
 
     // Pointer to WebViewController
     wil::com_ptr<ICoreWebView2Controller> m_webviewController;
