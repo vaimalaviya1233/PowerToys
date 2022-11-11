@@ -474,6 +474,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "SvgPreviewHandlerCpp", "src
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "DevFilesPreviewHandlerCpp", "src\modules\previewpane\DevFilesPreviewCPP\DevFilesPreviewHandlerCpp.vcxproj", "{C9A3B7D2-5174-47A0-910B-E04520522BA5}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "MarkdownPreviewHandlerCpp", "src\modules\previewpane\MarkdownPreviewHandlerCpp\MarkdownPreviewHandlerCpp.vcxproj", "{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|ARM64 = Debug|ARM64
@@ -1943,6 +1945,18 @@ Global
 		{C9A3B7D2-5174-47A0-910B-E04520522BA5}.Release|x64.Build.0 = Release|x64
 		{C9A3B7D2-5174-47A0-910B-E04520522BA5}.Release|x86.ActiveCfg = Release|x64
 		{C9A3B7D2-5174-47A0-910B-E04520522BA5}.Release|x86.Build.0 = Release|x64
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}.Debug|ARM64.ActiveCfg = Debug|ARM64
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}.Debug|ARM64.Build.0 = Debug|ARM64
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}.Debug|x64.ActiveCfg = Debug|x64
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}.Debug|x64.Build.0 = Debug|x64
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}.Debug|x86.ActiveCfg = Debug|x64
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}.Debug|x86.Build.0 = Debug|x64
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}.Release|ARM64.ActiveCfg = Release|ARM64
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}.Release|ARM64.Build.0 = Release|ARM64
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}.Release|x64.ActiveCfg = Release|x64
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}.Release|x64.Build.0 = Release|x64
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}.Release|x86.ActiveCfg = Release|x64
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545}.Release|x86.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -2107,6 +2121,7 @@ Global
 		{00EE9BA6-4E8F-43CA-960D-D4882F0FBB97} = {1AFB6476-670D-4E80-A464-657E01DFF482}
 		{C2CD3BFA-4B7B-4C57-B7D8-2B956328ED18} = {2F305555-C296-497E-AC20-5FA1B237996A}
 		{C9A3B7D2-5174-47A0-910B-E04520522BA5} = {2F305555-C296-497E-AC20-5FA1B237996A}
+		{ED9A1AC6-AEB0-4569-A6E9-E1696182B545} = {2F305555-C296-497E-AC20-5FA1B237996A}
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {C3A2F9D1-7930-4EF4-A6FC-7EE0A99821D0}

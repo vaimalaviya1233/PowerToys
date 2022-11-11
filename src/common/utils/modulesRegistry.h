@@ -46,12 +46,14 @@ inline registry::ChangeSet getMdPreviewHandlerChangeSet(const std::wstring insta
     using namespace registry::shellex;
     return generatePreviewHandler(PreviewHandlerType::preview,
                                   perUser,
-                                  L"{45769bcc-e8fd-42d0-947e-02beef77a1f5}",
+                                  L"{60789D87-9C3C-44AF-B18C-3DE2C2820ED3}",
                                   get_std_product_version(),
-                                  (fs::path{ installationDir } / LR"d(modules\FileExplorerPreview\PowerToys.MarkdownPreviewHandler.comhost.dll)d").wstring(),
-                                  L"Microsoft.PowerToys.PreviewHandler.Markdown.MarkdownPreviewHandler",
+                                  (fs::path{ installationDir } / LR"d(modules\FileExplorerPreview\MarkdownPreviewHandlerCpp.dll)d").wstring(),
+                                  L"MarkdownPreviewHandler",
                                   L"Markdown Preview Handler",
-                                  NonLocalizable::ExtMarkdown);
+                                  NonLocalizable::ExtMarkdown,
+                                  {},
+                                  /*App CLSID*/ L"{EE7B5DB7-BE41-4ED3-86D4-6F5D0E02BA8C}");
 }
 
 inline registry::ChangeSet getMonacoPreviewHandlerChangeSet(const std::wstring installationDir, const bool perUser)

@@ -133,14 +133,11 @@ namespace Microsoft.PowerToys.PreviewHandler.Markdown
             if (global::PowerToys.GPOWrapper.GPOWrapper.GetConfiguredMarkdownPreviewEnabledValue() == global::PowerToys.GPOWrapper.GpoRuleConfigured.Disabled)
             {
                 // GPO is disabling this utility. Show an error message instead.
-                InvokeOnControlThread(() =>
-                {
-                    _infoBarDisplayed = true;
-                    _infoBar = GetTextBoxControl(Resources.GpoDisabledErrorText);
-                    Resize += FormResized;
-                    Controls.Add(_infoBar);
-                    base.DoPreview(dataSource);
-                });
+                _infoBarDisplayed = true;
+                _infoBar = GetTextBoxControl(Resources.GpoDisabledErrorText);
+                Resize += FormResized;
+                Controls.Add(_infoBar);
+                base.DoPreview(dataSource);
 
                 return;
             }
@@ -174,80 +171,74 @@ namespace Microsoft.PowerToys.PreviewHandler.Markdown
                     Dock = DockStyle.Fill,
                 };
 
-                InvokeOnControlThread(() =>
-                {
-                    var webView2Options = new CoreWebView2EnvironmentOptions("--block-new-web-contents");
-                    ConfiguredTaskAwaitable<CoreWebView2Environment>.ConfiguredTaskAwaiter
+                var webView2Options = new CoreWebView2EnvironmentOptions("--block-new-web-contents");
+                ConfiguredTaskAwaitable<CoreWebView2Environment>.ConfiguredTaskAwaiter
                         webView2EnvironmentAwaiter = CoreWebView2Environment
                             .CreateAsync(userDataFolder: _webView2UserDataFolder, options: webView2Options)
                             .ConfigureAwait(true).GetAwaiter();
-                    webView2EnvironmentAwaiter.OnCompleted(() =>
+                webView2EnvironmentAwaiter.OnCompleted(async () =>
+                {
+                    try
                     {
-                        InvokeOnControlThread(async () =>
+                        _webView2Environment = webView2EnvironmentAwaiter.GetResult();
+                        await _browser.EnsureCoreWebView2Async(_webView2Environment).ConfigureAwait(true);
+                        _browser.CoreWebView2.SetVirtualHostNameToFolderMapping(VirtualHostName, AssemblyDirectory, CoreWebView2HostResourceAccessKind.Deny);
+                        _browser.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = false;
+                        _browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
+                        _browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
+                        _browser.CoreWebView2.Settings.AreHostObjectsAllowed = false;
+                        _browser.CoreWebView2.Settings.IsGeneralAutofillEnabled = false;
+                        _browser.CoreWebView2.Settings.IsPasswordAutosaveEnabled = false;
+                        _browser.CoreWebView2.Settings.IsScriptEnabled = false;
+                        _browser.CoreWebView2.Settings.IsWebMessageEnabled = false;
+
+                        // Don't load any resources.
+                        _browser.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
+                        _browser.CoreWebView2.WebResourceRequested += (object sender, CoreWebView2WebResourceRequestedEventArgs e) =>
                         {
-                            try
+                            // Show local file we've saved with the markdown contents. Block all else.
+                            if (new Uri(e.Request.Uri) != _localFileURI)
                             {
-                                _webView2Environment = webView2EnvironmentAwaiter.GetResult();
-                                await _browser.EnsureCoreWebView2Async(_webView2Environment).ConfigureAwait(true);
-                                _browser.CoreWebView2.SetVirtualHostNameToFolderMapping(VirtualHostName, AssemblyDirectory, CoreWebView2HostResourceAccessKind.Deny);
-                                _browser.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = false;
-                                _browser.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-                                _browser.CoreWebView2.Settings.AreDevToolsEnabled = false;
-                                _browser.CoreWebView2.Settings.AreHostObjectsAllowed = false;
-                                _browser.CoreWebView2.Settings.IsGeneralAutofillEnabled = false;
-                                _browser.CoreWebView2.Settings.IsPasswordAutosaveEnabled = false;
-                                _browser.CoreWebView2.Settings.IsScriptEnabled = false;
-                                _browser.CoreWebView2.Settings.IsWebMessageEnabled = false;
-
-                                // Don't load any resources.
-                                _browser.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
-                                _browser.CoreWebView2.WebResourceRequested += (object sender, CoreWebView2WebResourceRequestedEventArgs e) =>
-                                {
-                                    // Show local file we've saved with the markdown contents. Block all else.
-                                    if (new Uri(e.Request.Uri) != _localFileURI)
-                                    {
-                                        e.Response = _browser.CoreWebView2.Environment.CreateWebResourceResponse(null, 403, "Forbidden", null);
-                                    }
-                                };
-
-                                // WebView2.NavigateToString() limitation
-                                // See https://learn.microsoft.com/dotnet/api/microsoft.web.webview2.core.corewebview2.navigatetostring?view=webview2-dotnet-1.0.864.35#remarks
-                                // While testing the limit, it turned out it is ~1.5MB, so to be on a safe side we go for 1.5m bytes
-                                if (markdownHTML.Length > 1_500_000)
-                                {
-                                    string filename = _webView2UserDataFolder + "\\" + Guid.NewGuid().ToString() + ".html";
-                                    File.WriteAllText(filename, markdownHTML);
-                                    _localFileURI = new Uri(filename);
-                                    _browser.Source = _localFileURI;
-                                }
-                                else
-                                {
-                                    _browser.NavigateToString(markdownHTML);
-                                }
-
-                                Controls.Add(_browser);
-
-                                _browser.NavigationStarting += async (object sender, CoreWebView2NavigationStartingEventArgs args) =>
-                                {
-                                    if (args.Uri != null && args.Uri != _localFileURI?.ToString() && args.IsUserInitiated)
-                                    {
-                                        args.Cancel = true;
-                                        await Launcher.LaunchUriAsync(new Uri(args.Uri));
-                                    }
-                                };
-
-                                if (_infoBarDisplayed)
-                                {
-                                    _infoBar = GetTextBoxControl(Resources.BlockedImageInfoText);
-                                    Resize += FormResized;
-                                    Controls.Add(_infoBar);
-                                }
+                                e.Response = _browser.CoreWebView2.Environment.CreateWebResourceResponse(null, 403, "Forbidden", null);
                             }
-                            catch (NullReferenceException)
+                        };
+
+                        // WebView2.NavigateToString() limitation
+                        // See https://learn.microsoft.com/dotnet/api/microsoft.web.webview2.core.corewebview2.navigatetostring?view=webview2-dotnet-1.0.864.35#remarks
+                        // While testing the limit, it turned out it is ~1.5MB, so to be on a safe side we go for 1.5m bytes
+                        if (markdownHTML.Length > 1_500_000)
+                        {
+                            string filename = _webView2UserDataFolder + "\\" + Guid.NewGuid().ToString() + ".html";
+                            File.WriteAllText(filename, markdownHTML);
+                            _localFileURI = new Uri(filename);
+                            _browser.Source = _localFileURI;
+                        }
+                        else
+                        {
+                            _browser.NavigateToString(markdownHTML);
+                        }
+
+                        Controls.Add(_browser);
+
+                        _browser.NavigationStarting += async (object sender, CoreWebView2NavigationStartingEventArgs args) =>
+                        {
+                            if (args.Uri != null && args.Uri != _localFileURI?.ToString() && args.IsUserInitiated)
                             {
+                                args.Cancel = true;
+                                await Launcher.LaunchUriAsync(new Uri(args.Uri));
                             }
-                        });
-                    });
+                        };
+
+                        if (_infoBarDisplayed)
+                        {
+                            _infoBar = GetTextBoxControl(Resources.BlockedImageInfoText);
+                            Resize += FormResized;
+                            Controls.Add(_infoBar);
+                        }
+                    }
+                    catch (NullReferenceException)
+                    {
+                    }
                 });
 
                 PowerToysTelemetry.Log.WriteEvent(new MarkdownFilePreviewed());
@@ -256,14 +247,11 @@ namespace Microsoft.PowerToys.PreviewHandler.Markdown
             {
                 PowerToysTelemetry.Log.WriteEvent(new MarkdownFilePreviewError { Message = ex.Message });
 
-                InvokeOnControlThread(() =>
-                {
-                    Controls.Clear();
-                    _infoBarDisplayed = true;
-                    _infoBar = GetTextBoxControl(Resources.MarkdownNotPreviewedError);
-                    Resize += FormResized;
-                    Controls.Add(_infoBar);
-                });
+                Controls.Clear();
+                _infoBarDisplayed = true;
+                _infoBar = GetTextBoxControl(Resources.MarkdownNotPreviewedError);
+                Resize += FormResized;
+                Controls.Add(_infoBar);
             }
             finally
             {
@@ -276,7 +264,7 @@ namespace Microsoft.PowerToys.PreviewHandler.Markdown
         /// </summary>
         /// <param name="message">Message to be displayed in textbox.</param>
         /// <returns>An object of type <see cref="RichTextBox"/>.</returns>
-        private RichTextBox GetTextBoxControl(string message)
+        public RichTextBox GetTextBoxControl(string message)
         {
             RichTextBox richTextBox = new RichTextBox
             {
@@ -309,7 +297,7 @@ namespace Microsoft.PowerToys.PreviewHandler.Markdown
         /// </summary>
         /// <param name="sender">Reference to resized control.</param>
         /// <param name="e">Provides data for the event.</param>
-        private void FormResized(object sender, EventArgs e)
+        public void FormResized(object sender, EventArgs e)
         {
             if (_infoBarDisplayed)
             {
