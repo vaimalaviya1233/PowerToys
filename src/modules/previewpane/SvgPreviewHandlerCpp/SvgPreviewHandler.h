@@ -81,6 +81,7 @@ private:
 
     std::filesystem::path m_webVew2UserDataFolder;
     std::wstring m_localFileUri;
+    EventRegistrationToken m_webview2token;
 
     void AddWebViewControl(std::wstring svgData);
     BOOL CheckBlockedElements(std::wstring svgData);

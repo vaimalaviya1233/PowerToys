@@ -431,12 +431,12 @@ void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
                     m_webviewController = controller;
                     m_webviewController->get_CoreWebView2(&m_webviewWindow);
 
-                    wil::com_ptr<ICoreWebView2_3> webView;
-                    webView = m_webviewWindow.try_query<ICoreWebView2_3>();
-                    if (webView)
+                    wil::com_ptr<ICoreWebView2_3> webView2v3;
+                    webView2v3 = m_webviewWindow.try_query<ICoreWebView2_3>();
+                    if (webView2v3)
                     {
                         std::wstring modulePath = get_module_folderpath(g_hInst);
-                        webView->SetVirtualHostNameToFolderMapping(cVirtualHostName.c_str(), modulePath.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+                        webView2v3->SetVirtualHostNameToFolderMapping(cVirtualHostName.c_str(), modulePath.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
                     }
                     else
                     {
@@ -450,7 +450,7 @@ void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
 
                 // Add a few settings for the webview
                 // The demo step is redundant since the values are the default settings
-                ICoreWebView2Settings* Settings;
+                wil::com_ptr<ICoreWebView2Settings> Settings;
                 m_webviewWindow->get_Settings(&Settings);
 
                 Settings->put_AreDefaultScriptDialogsEnabled(FALSE);
@@ -459,13 +459,65 @@ void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
                 Settings->put_IsWebMessageEnabled(FALSE);
                 Settings->put_AreDevToolsEnabled(FALSE);
                 Settings->put_AreHostObjectsAllowed(FALSE);
-                // TODO(stefan)
-                //_browser.CoreWebView2.Settings.IsGeneralAutofillEnabled = false;
-                //_browser.CoreWebView2.Settings.IsPasswordAutosaveEnabled = false;
 
-                // TODO(stefan)
-                //_browser.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
-                //_browser.CoreWebView2.WebResourceRequested += CoreWebView2_BlockExternalResources;
+                wil::com_ptr<ICoreWebView2Settings4> webView2Settingsv4;
+                webView2Settingsv4 = Settings.try_query<ICoreWebView2Settings4>();
+                if (webView2Settingsv4)
+                {
+                    webView2Settingsv4->put_IsGeneralAutofillEnabled(FALSE);
+                    webView2Settingsv4->put_IsPasswordAutosaveEnabled(FALSE);
+                }
+
+                m_webviewWindow->AddWebResourceRequestedFilter(L"*", COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+                m_webviewWindow->add_WebResourceRequested(
+                    Callback<ICoreWebView2WebResourceRequestedEventHandler>(
+                        [this](
+                            ICoreWebView2* sender,
+                            ICoreWebView2WebResourceRequestedEventArgs* args) {
+
+
+                            wil::com_ptr<ICoreWebView2WebResourceRequest> request;
+                            if (args->get_Request(&request) == S_OK)
+                            {
+                                LPWSTR uri;
+                                if (request->get_Uri(&uri) == S_OK)
+                                {
+                                    std::wstring uriStr = uri;
+                                    size_t pos = uriStr.find_last_of('/');
+                                    if (pos != std::wstring::npos)
+                                    {
+                                        uriStr = uriStr.substr(pos + 1);
+                                    }
+
+                                    std::wstring localFileUri = m_localFileUri;
+                                    pos = localFileUri.find_last_of('\\');
+                                    if (pos != std::wstring::npos)
+                                    {
+                                        localFileUri = localFileUri.substr(pos + 1);
+                                    }
+                                    
+
+                                    // Show local file we've saved with the svg contents. Block all else.
+                                    if (uriStr != localFileUri)
+                                    {
+                                        wil::com_ptr<ICoreWebView2WebResourceResponse> response;
+                                        wil::com_ptr<ICoreWebView2Environment> environment;
+                                        wil::com_ptr<ICoreWebView2_2> webView2v2;
+                                        webView2v2 = m_webviewWindow.try_query<ICoreWebView2_2>();
+                                        if (webView2v2)
+                                        {
+                                            webView2v2->get_Environment(&environment);
+                                            environment->CreateWebResourceResponse(
+                                                nullptr, 403 /*NoContent*/, L"Forbidden", L"External content", &response);
+                                            args->put_Response(response.get());
+                                        }
+                                    }
+                                }
+                            }
+                            return S_OK;
+                        })
+                        .Get(),
+                    &m_webview2token);
 
                 RECT bounds;
                 GetClientRect(m_hwndParent, &bounds);
@@ -491,7 +543,10 @@ void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
                         wil::unique_cotaskmem_string guidString;
                         if (SUCCEEDED(StringFromCLSID(guid, &guidString)))
                         {
-                            std::wstring fileName = m_webVew2UserDataFolder.wstring() + L"\\" + guidString.get() + L".html";
+                            // {CLSID} -> CLSID
+                            std::wstring guid = std::wstring(guidString.get()).substr(1, std::wstring(guidString.get()).size() - 2);
+                            std::wstring fileName = m_webVew2UserDataFolder.wstring() + L"\\" + guid + L".html";
+
                             std::wofstream file;
                             file.open(fileName, std::ios_base::out);
                             if (file.is_open())
@@ -528,7 +583,11 @@ BOOL SvgPreviewHandler::CheckBlockedElements(std::wstring svgData)
     // Check if any of the blocked element is present. If failed to parse or iterate over Svg return default false.
     // No need to throw because all the external content and script are blocked on the Web Browser Control itself.
     winrt::Windows::Data::Xml::Dom::XmlDocument doc;
-    doc.LoadXml(svgData);
+    winrt::Windows::Data::Xml::Dom::XmlLoadSettings settings;
+    settings.ProhibitDtd(false);
+    settings.ValidateOnParse(false);
+    settings.ResolveExternals(true);
+    doc.LoadXml(svgData, settings);
 
     for (const auto blockedElem : BlockedElementsName)
     {
@@ -589,7 +648,11 @@ std::wstring SvgPreviewHandler::SwapNamespaces(std::wstring svgData)
 std::wstring SvgPreviewHandler::AddStyleSVG(std::wstring svgData)
 {
     winrt::Windows::Data::Xml::Dom::XmlDocument doc;
-    doc.LoadXml(svgData);
+    winrt::Windows::Data::Xml::Dom::XmlLoadSettings settings;
+    settings.ProhibitDtd(false);
+    settings.ValidateOnParse(false);
+    settings.ResolveExternals(true);
+    doc.LoadXml(svgData, settings);
 
     winrt::Windows::Data::Xml::Dom::XmlNodeList elems = doc.GetElementsByTagName(L"svg");
 
