@@ -272,18 +272,6 @@ IFACEMETHODIMP DevFilesPreviewHandler::DoPreview() {
         return S_OK;
     }
 
-    //auto asd = GetLanguage(std::filesystem::path{m_filePath}.extension());
-    //        // Sets background color
-    //SetBackground();
-    //// Starts loading screen
-    //InitializeLoadingScreen();
-    //// New webview2 element
-    //_webView = new WebView2();
-    //// Checks if dataSource is a string
-    //if (!(dataSource is string filePath))
-    //{
-    //    throw new ArgumentException($ "{nameof(dataSource)} for {nameof(MonacoPreviewHandler)} must be a string but was a '{typeof(T)}'");
-    //}
     std::wifstream in(m_filePath.c_str(), std::ios::in | std::ios::binary);
     in.seekg(0, std::ios::end);
 

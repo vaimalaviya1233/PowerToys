@@ -16,6 +16,7 @@
 
 #include <common/SettingsAPI/settings_helpers.h>
 #include <common/utils/gpo.h>
+#include <common/utils/process_path.h>
 #include <common/utils/resources.h>
 
 using namespace Microsoft::WRL;
@@ -24,6 +25,7 @@ extern HINSTANCE g_hInst;
 extern long g_cDllRef;
 
 static const uint32_t cInfoBarHeight = 70;
+static const std::wstring cVirtualHostName = L"PowerToysLocalSvg";
 
 namespace
 {
@@ -40,7 +42,7 @@ inline int RECTHEIGHT(const RECT& rc)
 }
 
 SvgPreviewHandler::SvgPreviewHandler() :
-    m_cRef(1), m_pStream(NULL), m_hwndParent(NULL), m_rcParent(), m_punkSite(NULL), m_gpoText(NULL), m_infoBarAdded(false)
+    m_cRef(1), m_pStream(NULL), m_hwndParent(NULL), m_rcParent(), m_punkSite(NULL), m_gpoText(NULL), m_infoBarAdded(false), m_localFileUri()
 {
     m_webVew2UserDataFolder = PTSettingsHelper::get_local_low_folder_location() + L"\\SvgPreview-Temp";
 
@@ -428,6 +430,18 @@ void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
                 {
                     m_webviewController = controller;
                     m_webviewController->get_CoreWebView2(&m_webviewWindow);
+
+                    wil::com_ptr<ICoreWebView2_3> webView;
+                    webView = m_webviewWindow.try_query<ICoreWebView2_3>();
+                    if (webView)
+                    {
+                        std::wstring modulePath = get_module_folderpath(g_hInst);
+                        webView->SetVirtualHostNameToFolderMapping(cVirtualHostName.c_str(), modulePath.c_str(), COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+                    }
+                    else
+                    {
+                        PreviewError(std::string("Error setting virtual host"));
+                    }
                 }
                 else
                 {
@@ -465,8 +479,35 @@ void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
                     bounds.top += cInfoBarHeight;
                     m_webviewController->put_Bounds(bounds);
                 }
-                // TODO(stefan) Add 2MB check
-                m_webviewWindow->NavigateToString(svgData.c_str());
+
+                // WebView2.NavigateToString() limitation
+                // See https://learn.microsoft.com/dotnet/api/microsoft.web.webview2.core.corewebview2.navigatetostring?view=webview2-dotnet-1.0.864.35#remarks
+                // While testing the limit, it turned out it is ~1.5MB, so to be on a safe side we go for 1.5m bytes
+                if (svgData.size() > 1500000)
+                {
+                    GUID guid;
+                    if (CoCreateGuid(&guid) == S_OK)
+                    {
+                        wil::unique_cotaskmem_string guidString;
+                        if (SUCCEEDED(StringFromCLSID(guid, &guidString)))
+                        {
+                            std::wstring fileName = m_webVew2UserDataFolder.wstring() + L"\\" + guidString.get() + L".html";
+                            std::wofstream file;
+                            file.open(fileName, std::ios_base::out);
+                            if (file.is_open())
+                            {
+                                file << svgData;
+                                file.close();
+                                m_localFileUri = fileName;
+                                m_webviewWindow->Navigate(fileName.c_str());
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    m_webviewWindow->NavigateToString(svgData.c_str());
+                }
 
                 return S_OK;
             }).Get());
@@ -509,7 +550,7 @@ void SvgPreviewHandler::CleanupWebView2UserDataFolder()
         // Cleanup temp
         for (auto const& dir_entry : std::filesystem::directory_iterator{ m_webVew2UserDataFolder })
         {
-            if (dir_entry.path().extension().compare(L"html") == 0)
+            if (dir_entry.path().extension().compare(L".html") == 0)
             {
                 std::filesystem::remove(dir_entry);
             }

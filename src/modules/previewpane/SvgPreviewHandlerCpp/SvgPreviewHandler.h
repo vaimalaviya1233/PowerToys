@@ -48,14 +48,6 @@ public:
     IFACEMETHODIMP GetSite(REFIID riid, void** ppv);
 
     SvgPreviewHandler();
-    wil::com_ptr<ICoreWebView2Controller> GetWebView2Controller()
-    {
-        return m_webviewController;
-    }
-    HWND GetBlockedTextHwnd()
-    {
-        return m_blockedText;
-    }
 
 protected:
     ~SvgPreviewHandler();
@@ -88,6 +80,7 @@ private:
     bool m_infoBarAdded;
 
     std::filesystem::path m_webVew2UserDataFolder;
+    std::wstring m_localFileUri;
 
     void AddWebViewControl(std::wstring svgData);
     BOOL CheckBlockedElements(std::wstring svgData);
