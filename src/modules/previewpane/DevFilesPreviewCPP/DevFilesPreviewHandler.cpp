@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "DevFilesPreviewHandler.h"
 #include "Generated Files/resource.h"
+#include "Settings.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -12,6 +13,8 @@
 #include <common/utils/json.h>
 #include <common/utils/process_path.h>
 #include <common/utils/resources.h>
+#include <common/Themes/theme_helpers.h>
+#include <common/Themes/windows_colors.h>
 
 using namespace Microsoft::WRL;
 
@@ -48,37 +51,23 @@ std::wstring get_file_content(std::wifstream& inStream, size_t fileSize)
     throw(errno);
 }
 
-std::string get_file_contents(std::ifstream& inStream, size_t fileSize)
-{
-    if (inStream)
-    {
-        std::string contents;
-        contents.resize(fileSize);
-        inStream.seekg(0, std::ios::beg);
-        inStream.read(&contents[0], contents.size());
-        inStream.close();
-        return (contents);
-    }
-    throw(errno);
-}
-
-static const std::string base64_chars =
-    "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+static const std::wstring base64_chars =
+    L"ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     "abcdefghijklmnopqrstuvwxyz"
     "0123456789+/";
 
-static inline bool is_base64(BYTE c)
+static inline bool is_base64(wchar_t c)
 {
     return (isalnum(c) || (c == '+') || (c == '/'));
 }
 
-std::string base64_encode(BYTE const* buf, unsigned int bufLen)
+std::wstring base64_encode(wchar_t const* buf, unsigned int bufLen)
 {
-    std::string ret;
+    std::wstring ret;
     int i = 0;
     int j = 0;
-    BYTE char_array_3[3];
-    BYTE char_array_4[4];
+    wchar_t char_array_3[3];
+    wchar_t char_array_4[4];
 
     while (bufLen--)
     {
@@ -118,7 +107,7 @@ std::string base64_encode(BYTE const* buf, unsigned int bufLen)
 }
 
 DevFilesPreviewHandler::DevFilesPreviewHandler() :
-    m_cRef(1), m_hwndParent(NULL), m_rcParent(), m_punkSite(NULL), m_gpoText(NULL)
+    m_cRef(1), m_hwndParent(NULL), m_rcParent(), m_punkSite(NULL), m_gpoText(NULL), m_errorText(NULL), m_infoBarAdded(false)
 {
     m_webVew2UserDataFolder = PTSettingsHelper::get_local_low_folder_location() + L"\\DevFilesPreview-Temp";
 
@@ -131,6 +120,11 @@ DevFilesPreviewHandler::~DevFilesPreviewHandler()
     {
         DestroyWindow(m_gpoText);
         m_gpoText = NULL;
+    }
+    if (m_errorText)
+    {
+        DestroyWindow(m_errorText);
+        m_errorText = NULL;
     }
 
     InterlockedDecrement(&g_cDllRef);
@@ -232,11 +226,16 @@ IFACEMETHODIMP DevFilesPreviewHandler::SetRect(const RECT *prc)
     if (prc != NULL)
     {
         m_rcParent = *prc;
-        hr = S_OK;
+        if (m_errorText)
+        {
+            SetWindowPos(m_errorText, NULL, m_rcParent.left, m_rcParent.top,
+                RECTWIDTH(m_rcParent), cInfoBarHeight,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
+        }
 
         if (m_webviewController)
         {
-            if (/* !m_infoBarAdded*/ true)
+            if (!m_infoBarAdded)
             {
                 m_webviewController->put_Bounds(m_rcParent);
             }
@@ -248,13 +247,18 @@ IFACEMETHODIMP DevFilesPreviewHandler::SetRect(const RECT *prc)
                 m_webviewController->put_Bounds(webViewRect);
             }
         }
+        hr = S_OK;
+
     }
     return hr;
 }
 
 IFACEMETHODIMP DevFilesPreviewHandler::DoPreview() {
+    CleanupWebView2UserDataFolder();
+
     if (powertoys_gpo::getConfiguredMonacoPreviewEnabledValue() == powertoys_gpo::gpo_rule_configured_disabled)
     {
+        m_infoBarAdded = true;
         // GPO is disabling this utility. Show an error message instead.
         m_gpoText = CreateWindowEx(
             0, L"EDIT", // predefined class
@@ -298,30 +302,26 @@ IFACEMETHODIMP DevFilesPreviewHandler::DoPreview() {
         pos = htmlFileContent.find(ptWrap);
         if (pos != std::wstring::npos)
         {
-            htmlFileContent = htmlFileContent.replace(pos, ptWrap.size(), /* settings.Wrap ? L"1" : */ L"0");
+            auto& settingsInstance = DevFilesPreviewHandlerSettingsInstance();
+            htmlFileContent = htmlFileContent.replace(pos, ptWrap.size(), settingsInstance.GetWrapText() ? L"1" : L"0");
         }
+
+        bool light_mode = WindowsColors::rgb_color(WindowsColors::get_background_color()) != 0;
 
         const std::wstring ptTheme = L"[[PT_THEME]]";
         pos = htmlFileContent.find(ptTheme);
         if (pos != std::wstring::npos)
         {
-            htmlFileContent = htmlFileContent.replace(pos, ptTheme.size(), /* Settings.GetTheme() */ L"dark");
+            htmlFileContent = htmlFileContent.replace(pos, ptTheme.size(), light_mode ? L"light" : L"dark");
         }
 
-        // Read content in char (not wide char), convert it to base64 and than back to wide char
-        std::ifstream in2(m_filePath.c_str(), std::ios::in | std::ios::binary);
-        in2.seekg(0, std::ios::end);
-        fileSize = in2.tellg();
-        std::string fileContent2 = get_file_contents(in2, fileSize);
-
-        std::string asd = base64_encode((BYTE*)fileContent2.c_str(), (unsigned int)fileContent2.size());
-        std::wstring backToW = std::wstring(winrt::to_hstring(asd));
+        std::wstring encoded = base64_encode(fileContent.c_str(), (unsigned int)fileContent.size());
 
         const std::wstring ptCode = L"[[PT_CODE]]";
         pos = htmlFileContent.find(ptCode);
         if (pos != std::wstring::npos)
         {
-            htmlFileContent = htmlFileContent.replace(pos, ptCode.size(), backToW);
+            htmlFileContent = htmlFileContent.replace(pos, ptCode.size(), encoded);
         }
 
         const std::wstring ptUrl = L"[[PT_URL]]";
@@ -332,10 +332,6 @@ IFACEMETHODIMP DevFilesPreviewHandler::DoPreview() {
             pos = htmlFileContent.find(ptUrl, pos + ptUrl.size());
         }
 
-        if (m_webviewController)
-            m_webviewController->Close();
-        if (m_webviewWindow)
-            m_webviewWindow->Stop();
         CreateCoreWebView2EnvironmentWithOptions(nullptr, m_webVew2UserDataFolder.c_str(), nullptr,
             Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>([this, htmlFileContent](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
                 // Create a CoreWebView2Controller and get the associated CoreWebView2 whose parent is the main window hWnd
@@ -353,37 +349,41 @@ IFACEMETHODIMP DevFilesPreviewHandler::DoPreview() {
                         }
                         else
                         {
-                            // error cant set virtual host
+                            PreviewError(L"Error setting virtual host");
                         }
                     }
                     else
                     {
-                        //PreviewError(std::string("Error initalizing WebView controller"));
+                        PreviewError(L"Error initalizing WebView controller");
                     }
 
                     // Add a few settings for the webview
                     // The demo step is redundant since the values are the default settings
-                    ICoreWebView2Settings* Settings;
+                    wil::com_ptr<ICoreWebView2Settings> Settings;
                     m_webviewWindow->get_Settings(&Settings);
 
                     Settings->put_AreDefaultScriptDialogsEnabled(FALSE);
                     Settings->put_AreDefaultContextMenusEnabled(FALSE);
                     Settings->put_IsScriptEnabled(TRUE);
+                    Settings->put_IsZoomControlEnabled(FALSE);
+                    Settings->put_IsStatusBarEnabled(FALSE);
+                    Settings->put_IsBuiltInErrorPageEnabled(FALSE);
                     Settings->put_IsWebMessageEnabled(FALSE);
                     Settings->put_AreDevToolsEnabled(FALSE);
                     Settings->put_AreHostObjectsAllowed(FALSE);
-                    // TODO(stefan)
-                    //_browser.CoreWebView2.Settings.IsGeneralAutofillEnabled = false;
-                    //_browser.CoreWebView2.Settings.IsPasswordAutosaveEnabled = false;
 
-                    // TODO(stefan)
-                    //_browser.CoreWebView2.AddWebResourceRequestedFilter("*", CoreWebView2WebResourceContext.All);
-                    //_browser.CoreWebView2.WebResourceRequested += CoreWebView2_BlockExternalResources;
+                    wil::com_ptr<ICoreWebView2Settings4> webView2Settingsv4;
+                    webView2Settingsv4 = Settings.try_query<ICoreWebView2Settings4>();
+                    if (webView2Settingsv4)
+                    {
+                        webView2Settingsv4->put_IsGeneralAutofillEnabled(FALSE);
+                        webView2Settingsv4->put_IsPasswordAutosaveEnabled(FALSE);
+                    }
 
                     RECT bounds;
                     GetClientRect(m_hwndParent, &bounds);
 
-                    if (true /*!m_infoBarAdded*/)
+                    if (!m_infoBarAdded)
                     {
                         m_webviewController->put_Bounds(bounds);                
                     }
@@ -392,9 +392,8 @@ IFACEMETHODIMP DevFilesPreviewHandler::DoPreview() {
                         bounds.top += cInfoBarHeight;
                         m_webviewController->put_Bounds(bounds);
                     }
-                    // TODO(stefan) Add 2MB check
+
                     m_webviewWindow->NavigateToString(htmlFileContent.c_str());
-                    //m_webviewWindow->Navigate(L"http://www.bing.com");
 
                     return S_OK;
                 }).Get());
@@ -403,7 +402,7 @@ IFACEMETHODIMP DevFilesPreviewHandler::DoPreview() {
     }
     else
     {
-        // Error file too big
+        PreviewError(GET_RESOURCE_STRING(IDS_MAXFILESIZEERROR));
     }
 
     return S_OK;
@@ -411,10 +410,21 @@ IFACEMETHODIMP DevFilesPreviewHandler::DoPreview() {
 
 IFACEMETHODIMP DevFilesPreviewHandler::Unload()
 {
+    m_infoBarAdded = false;
+
+    if (m_webviewController)
+        m_webviewController->Close();
+    if (m_webviewWindow)
+        m_webviewWindow->Stop();
     if (m_gpoText)
     {
         DestroyWindow(m_gpoText);
         m_gpoText = NULL;
+    }
+    if (m_errorText)
+    {
+        DestroyWindow(m_errorText);
+        m_errorText = NULL;
     }
     return S_OK;
 }
@@ -514,6 +524,51 @@ std::wstring DevFilesPreviewHandler::GetLanguage(std::wstring fileExtension)
         }
     }
     return {};
+}
+
+
+void DevFilesPreviewHandler::PreviewError(std::wstring errorMessage)
+{
+    m_infoBarAdded = true;
+
+    if (m_errorText)
+    {
+        DestroyWindow(m_errorText);
+    }
+
+    m_errorText = CreateWindowEx(
+        0, L"EDIT", // predefined class
+        errorMessage.c_str(),
+        WS_CHILD | WS_VISIBLE | ES_LEFT | ES_MULTILINE | ES_AUTOVSCROLL | ES_READONLY,
+        0,
+        0,
+        RECTWIDTH(m_rcParent),
+        cInfoBarHeight,
+        m_hwndParent, // parent window
+        NULL, // edit control ID
+        g_hInst,
+        NULL);
+}
+
+void DevFilesPreviewHandler::CleanupWebView2UserDataFolder()
+{
+    try
+    {
+        // Cleanup temp
+        for (auto const& dir_entry : std::filesystem::directory_iterator{ m_webVew2UserDataFolder })
+        {
+            if (dir_entry.path().extension().compare(L".html") == 0)
+            {
+                std::filesystem::remove(dir_entry);
+            }
+        }
+    }
+    catch (std::exception ex)
+    {
+        PreviewError(std::wstring{ L"Error cleaning up WebView2 user data folder:" + winrt::to_hstring(ex.what()) });
+
+        // Trace::SvgFilePreviewError(ex.what());
+    }
 }
 
 #pragma endregion

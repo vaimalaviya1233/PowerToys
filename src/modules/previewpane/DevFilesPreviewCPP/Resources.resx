@@ -120,4 +120,7 @@
   <data name="GpoDisabledErrorText" xml:space="preserve">
     <value>Tried to start with a GPO policy setting the utility to always be disabled. Please contact your systems administrator.</value>
   </data>
+  <data name="MaxFileSizeError" xml:space="preserve">
+    <value>This file is too big to preview. Max file size: 50KB</value>
+  </data>
 </root>

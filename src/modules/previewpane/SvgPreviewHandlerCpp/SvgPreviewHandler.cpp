@@ -340,6 +340,11 @@ IFACEMETHODIMP SvgPreviewHandler::Unload()
         m_pStream = NULL;
     }
 
+    m_infoBarAdded = false;
+    if (m_webviewController)
+        m_webviewController->Close();
+    if (m_webviewWindow)
+        m_webviewWindow->Stop();
     if (m_gpoText)
     {
         DestroyWindow(m_gpoText);
@@ -418,10 +423,6 @@ IFACEMETHODIMP SvgPreviewHandler::GetSite(REFIID riid, void **ppv)
 
 void SvgPreviewHandler::AddWebViewControl(std::wstring svgData)
 {
-    if (m_webviewController)
-        m_webviewController->Close();
-    if (m_webviewWindow)
-        m_webviewWindow->Stop();
     CreateCoreWebView2EnvironmentWithOptions(nullptr, m_webVew2UserDataFolder.c_str(), nullptr,
         Callback<ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler>([this, svgData](HRESULT result, ICoreWebView2Environment* env) -> HRESULT {
             // Create a CoreWebView2Controller and get the associated CoreWebView2 whose parent is the main window hWnd
@@ -758,6 +759,8 @@ std::wstring SvgPreviewHandler::RemoveUnit(std::wstring value)
 
 void SvgPreviewHandler::PreviewError(std::string errorMessage)
 {
+    m_infoBarAdded = true;
+
     if (m_errorText)
     {
         DestroyWindow(m_errorText);

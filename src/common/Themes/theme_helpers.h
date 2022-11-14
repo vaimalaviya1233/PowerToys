@@ -10,5 +10,5 @@ enum class AppTheme
 struct ThemeHelpers
 {
     static AppTheme GetAppTheme();
-    static void ThemeHelpers::SetImmersiveDarkMode(HWND window, bool enabled);
+    static void SetImmersiveDarkMode(HWND window, bool enabled);
 };

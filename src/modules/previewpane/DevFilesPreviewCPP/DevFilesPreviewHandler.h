@@ -77,6 +77,10 @@ private:
     wil::com_ptr<ICoreWebView2> m_webviewWindow;
 
     HWND m_gpoText;
+    HWND m_errorText;
+    bool m_infoBarAdded;
 
     std::wstring GetLanguage(std::wstring fileExtension);
+    void PreviewError(std::wstring errorMessage);
+    void CleanupWebView2UserDataFolder();
 };
