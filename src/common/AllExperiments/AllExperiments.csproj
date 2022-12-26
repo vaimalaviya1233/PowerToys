@@ -19,4 +19,8 @@
     <Compile Remove=".\Logger.cs" />
     <Compile Remove=".\Experiments_Live.cs" />
   </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
+  </ItemGroup>
 </Project>
